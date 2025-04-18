@@ -10,3 +10,15 @@
 
 ### Summary of Code
 This code is designed to grab pricing from one or a few catalogues. If you would like to grab prices from all the catalogues you can refactor the code to first get a list of all catalogues that a product belongs to and then the rest of the code will work the same. 
+
+### Code Output
+
+```
+{
+  ...record attributes
+  b2b_pricing: [
+    {1234: 500}, //{catalogID: price}
+    {4231: 550}
+  ]
+}
+```
