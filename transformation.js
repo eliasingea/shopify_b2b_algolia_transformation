@@ -6,38 +6,37 @@
  * @returns {SourceRecord|Array<SourceRecord>} - Return a record or an array of records.
  */
 async function transform(record, helper) {
-  const secret = helper.secrets.get("SHOPIFY");
-  console.log(secret);
-  const b2b_pricing = await getCatalog(secret, record);
+  const secret = helper.secrets.get('SHOPIFY');
+  console.log(secret)
+  const b2b_pricing = await getAllCatalogs(secret, record); 
 
-  record.b2b_pricing = b2b_pricing;
+  record.b2b_pricing = b2b_pricing; 
   // If you want to exclude a record, you can just return undefined.
   // If you want to return multiple records, you can return an array of records.
   return record;
 }
 
-async function getCatalog(secret, record) {
-  let catalogID = "gid://shopify/Catalog/{{catalogID}}";
-
-  const isPublished = await getProductCatalogInfo(record.id, catalogID, secret);
-
-  if (isPublished) {
-    console.log("Product is published in the catalog.");
-    let priceData = await getPriceInfo(record.objectID, catalogID, secret);
-    console.log("Price Data:", priceData);
-    return priceData;
-  } else {
-    console.log("Product is not published in the catalog.");
-    return null;
+async function getAllCatalogs(secret, record) {
+  const publishedCatalogs = await getProductCatalogInfo(record.id, secret);
+  let b2b_pricing = {}
+  for (let catalog of publishedCatalogs) {
+    let priceData = await getPriceInfo(record.objectID, catalog, secret); 
+    let catalogID = catalog.substring(
+      catalog.lastIndexOf("/") + 1,
+      catalog.length
+    );
+    b2b_pricing[catalogID] = priceData
   }
+  return b2b_pricing; 
 }
+
 
 async function fetchGraphQL(query, secret) {
   let response;
   let retries = 0;
   while (retries < 5) {
     const res = await fetch(
-      "https://{{shopify_store_url}}/admin/api/2023-10/graphql.json",
+      "https://elias-dev-store.myshopify.com/admin/api/2023-10/graphql.json",
       {
         method: "POST",
         headers: {
@@ -72,14 +71,8 @@ async function fetchGraphQL(query, secret) {
   }
 }
 
-async function getProductCatalogInfo(productID, catalogID, secret) {
-  function getCatalogIDSubstring(catalogID) {
-    return catalogID.substring(
-      catalogID.lastIndexOf("/") + 1,
-      catalogID.length
-    );
-  }
-
+async function getProductCatalogInfo(productID, secret) {
+  
   const query = `
     query {
       product(id: "gid://shopify/Product/${productID}") {
@@ -104,15 +97,12 @@ async function getProductCatalogInfo(productID, catalogID, secret) {
   const data = await fetchGraphQL(query, secret);
   const product = data.product;
 
-  const publishedCatalogIds = product.resourcePublicationsV2.edges.map((e) =>
-    getCatalogIDSubstring(e.node.publication.catalog.id)
-  );
+  // Extract a list of catalog objects with id and title
+  const publishedCatalogs = product.resourcePublicationsV2.edges.map((e) => {
+    return e.node.publication.catalog.id;
+  });
 
-  const isPublished = publishedCatalogIds.includes(
-    getCatalogIDSubstring(catalogID)
-  );
-
-  return isPublished;
+  return publishedCatalogs
 }
 
 async function getPriceInfo(objectID, catalogID, secret) {
@@ -126,7 +116,7 @@ async function getPriceInfo(objectID, catalogID, secret) {
           id
           name
           currency
-          prices(first: 10, query: "variant_id:${objectID}") {
+          prices(first: 1, query: "variant_id:${objectID}") {
             nodes {
               variant {
                 id
@@ -138,36 +128,19 @@ async function getPriceInfo(objectID, catalogID, secret) {
             }
           }
         }
-        ... on CompanyLocationCatalog {
-          companyLocations(first: 10) {
-            edges {
-              node {
-                id
-                name
-              }
-            }
-          }
-        }
+
       }
     }
   `;
 
   const data = await fetchGraphQL(query, secret);
   const catalog = data.catalog;
-  const catalogId = catalog.id.substring(
-    catalog.id.lastIndexOf("/") + 1,
-    catalog.id.length
-  );
   const priceList = catalog.priceList;
   const prices = priceList.prices.nodes;
   const activeStatus = catalog.status === "ACTIVE";
-  const priceData =
-    activeStatus &&
-    prices.map((price) => {
-      return {
-        [catalogId]: parseFloat(price.price.amount),
-      };
-    });
+  if (activeStatus && prices.length > 0) {
+    return parseFloat(prices[0].price.amount)
+  }
   console.log("Price Data:", priceData);
   return priceData;
 }
